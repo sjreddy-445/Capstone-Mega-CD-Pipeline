@@ -1,1 +1,228 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+  namespace: bankapp-namespace
+type: Opaque
+data:
+  MYSQL_ROOT_PASSWORD: VGVzdEAxMjM=  # Base64 for "Test@123"
+  SPRING_DATASOURCE_PASSWORD: VGVzdEAxMjM= # Base64 for "Test@123"
+---
 
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-pv
+  namespace: bankapp-namespace
+spec:
+  capacity:
+    storage: 10Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain  # Keeps the PV after the PVC is deleted
+  storageClassName: standard  # Make sure this matches your cluster's default storage class
+  hostPath:
+    path: /mnt/data/mysql
+    type: DirectoryOrCreate
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+  namespace: bankapp-namespace
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-svc
+  namespace: bankapp-namespace
+  labels:
+    app: mysql
+spec:
+  selector:
+    app: mysql
+  ports:
+  - protocol: TCP
+    port: 3306
+    targetPort: 3306
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: bankapp-namespace
+  labels:
+    app: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0  # Use a specific, stable version for production
+        ports:
+        - containerPort: 3306
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: MYSQL_ROOT_PASSWORD
+        - name: MYSQL_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: bankapp-config
+              key: MYSQL_DATABASE
+        volumeMounts:
+        - name: mysql-pv-storage
+          mountPath: /var/lib/mysql
+          subPath: mysql-data  # Optional: Ensure a subdirectory is used for better volume organization
+      volumes:
+      - name: mysql-pv-storage
+        persistentVolumeClaim:
+          claimName: mysql-pvc
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bankapp-config
+  namespace: bankapp-namespace
+data:
+  MYSQL_DATABASE: BankDB
+  SPRING_DATASOURCE_URL: jdbc:mysql://mysql-svc.bankapp-namespace.svc.cluster.local:3306/BankDB?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+  SPRING_DATASOURCE_USERNAME: root
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: bankapp-service
+  namespace: bankapp-namespace
+  labels:
+    app: bankapp
+spec:
+  selector:
+    app: bankapp-deploy
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+---
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bankapp-namespace
+  labels:
+    name: bankapp-namespace
+---
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bankapp-ingress
+  namespace: bankapp-namespace
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"  # Force HTTPS
+    cert-manager.io/cluster-issuer: letsencrypt-prod  # Use Let's Encrypt
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - megaproject.trainwithshubham.com
+    secretName: bankapp-tls-secret  # Cert-Manager will manage this
+  rules:
+  - host: megaproject.trainwithshubham.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: bankapp-service
+            port:
+              number: 8080
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: bankapp-deploy
+  name: bankapp-deploy
+  namespace: bankapp-namespace
+spec:
+  replicas: 2  # Keep replicas >= 2 for high availability
+  selector:
+    matchLabels:
+      app: bankapp-deploy
+  template:
+    metadata:
+      labels:
+        app: bankapp-deploy
+    spec:
+      containers:
+      - name: bankapp
+        image: trainwithshubham/bankapp-eks:v2
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SPRING_DATASOURCE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: bankapp-config
+              key: SPRING_DATASOURCE_URL
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: bankapp-config
+              key: SPRING_DATASOURCE_USERNAME
+        - name: MYSQL_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: bankapp-config
+              key: MYSQL_DATABASE
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: SPRING_DATASOURCE_PASSWORD
+        # readinessProbe:
+        #   httpGet:
+        #     path: /actuator/health  # Update this based on your app's health endpoint
+        #     port: 8080
+        #   initialDelaySeconds: 10
+        #   periodSeconds: 5
+        # livenessProbe:
+        #   httpGet:
+        #     path: /actuator/health  # Update this based on your app's health endpoint
+        #     port: 8080
+        #   initialDelaySeconds: 30
+        #   periodSeconds: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
