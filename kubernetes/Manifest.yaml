@@ -7,6 +7,7 @@ metadata:
 type: Opaque
 data:
   MYSQL_ROOT_PASSWORD: VGVzdEAxMjM=  # Base64 for "Test@123"
+  SPRING_DATASOURCE_PASSWORD: VGVzdEAxMjM=  # Base64 for "Test@123"
 ---
 # 2. ConfigMap
 apiVersion: v1
@@ -16,7 +17,7 @@ metadata:
   namespace: webapps
 data:
   MYSQL_DATABASE: BankDB
-  SPRING_DATASOURCE_URL: jdbc:mysql://mysql-svc.webapps.svc.cluster.local:3306/BankDB?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+  SPRING_DATASOURCE_URL: jdbc:mysql://mysql-service:3306/BankDB?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
   SPRING_DATASOURCE_USERNAME: root
 ---
 # 3. StorageClass
@@ -31,7 +32,7 @@ parameters:
   type: gp3
   fsType: ext4
 ---
-# 5. PersistentVolumeClaim
+# 4. PersistentVolumeClaim
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -55,8 +56,8 @@ spec:
   selector:
     app: mysql
   ports:
-    port: 3306
-    targetPort: 3306
+    - port: 3306
+      targetPort: 3306
 ---
 # 6. MySQL Deployment
 apiVersion: apps/v1
@@ -70,52 +71,52 @@ spec:
     matchLabels:
       app: mysql
   strategy:
-      type: Recreate
+    type: Recreate
   template:
     metadata:
       labels:
         app: mysql
     spec:
       containers:
-      - name: mysql
-        image: mysql:8.0
-        resources: 
-          requests:
-            memory: "512Mi"
-            cpu: "500m"
-          limits:
-            memory: "1Gi"
-            cpu: "1"
-        ports:
-        - containerPort: 3306
-        env:
-        - name: MYSQL_ROOT_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: MYSQL_ROOT_PASSWORD
-        - name: MYSQL_DATABASE
-          valueFrom:
-            configMapKeyRef:
-              name: mysql-config
-              key: MYSQL_DATABASE
-        volumeMounts:
-        - name: mysql-data
-          mountPath: /var/lib/mysql
-        livenessProbe:
-          tcpSocket:
-            port: 3306
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          exec:
-            command: ["mysqladmin", "ping", "-h", "127.0.0.1"] 
-          initialDelaySeconds: 30
-          periodSeconds: 10
+        - name: mysql
+          image: mysql:8.0
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: mysql-config
+                  key: MYSQL_DATABASE
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+          livenessProbe:
+            tcpSocket:
+              port: 3306
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "-h", "127.0.0.1"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
       volumes:
-      - name: mysql-data
-        persistentVolumeClaim:
-          claimName: mysql-pvc
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: mysql-pvc
 ---
 # 7. Bank App Service
 apiVersion: v1
@@ -123,64 +124,76 @@ kind: Service
 metadata:
   name: bankapp-service
   namespace: webapps
-  labels:
-    app: bankapp
 spec:
+  type: ClusterIP
   selector:
-    app: bankapp-deploy
+    app: bankapp
   ports:
-  - protocol: TCP
-    port: 8080
-    targetPort: 8080
+    - port: 80
+      targetPort: 8080
 ---
 # 8. Bank App Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  labels:
-    app: bankapp-deploy
-  name: bankapp-deploy
+  name: bankapp
   namespace: webapps
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: bankapp-deploy
+      app: bankapp
   template:
     metadata:
       labels:
-        app: bankapp-deploy
+        app: bankapp
     spec:
       containers:
-      - name: bankapp
-        image: thepraduman/bankapp:v29
-        ports:
-        - containerPort: 8080
-        env:
-        - name: SPRING_DATASOURCE_URL
-          valueFrom:
-            configMapKeyRef:
-              name: bankapp-config
-              key: SPRING_DATASOURCE_URL
-        - name: SPRING_DATASOURCE_USERNAME
-          valueFrom:
-            configMapKeyRef:
-              name: bankapp-config
-              key: SPRING_DATASOURCE_USERNAME
-        - name: MYSQL_DATABASE
-          valueFrom:
-            configMapKeyRef:
-              name: bankapp-config
-              key: MYSQL_DATABASE
-        - name: SPRING_DATASOURCE_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: SPRING_DATASOURCE_PASSWORD
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "500m"
+        - name: bankapp
+          image: thepraduman/bankapp:v29
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: mysql-config
+                  key: SPRING_DATASOURCE_URL
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: mysql-config
+                  key: SPRING_DATASOURCE_USERNAME
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: SPRING_DATASOURCE_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: mysql-config
+                  key: MYSQL_DATABASE
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /login
+              port: 8080
+            initialDelaySeconds: 60
+            timeoutSeconds: 5
+            failureThreshold: 3
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: 8080
+            initialDelaySeconds: 60
+            timeoutSeconds: 5
+            failureThreshold: 3
+            periodSeconds: 10
