@@ -7,38 +7,31 @@ metadata:
 type: Opaque
 data:
   MYSQL_ROOT_PASSWORD: VGVzdEAxMjM=  # Base64 for "Test@123"
-  SPRING_DATASOURCE_PASSWORD: VGVzdEAxMjM=  # Base64 for "Test@123"
 ---
 # 2. ConfigMap
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: bankapp-config
+  name: mysql-config
   namespace: webapps
 data:
   MYSQL_DATABASE: BankDB
   SPRING_DATASOURCE_URL: jdbc:mysql://mysql-svc.webapps.svc.cluster.local:3306/BankDB?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
   SPRING_DATASOURCE_USERNAME: root
 ---
-# 3. PersistentVolume
-apiVersion: v1
-kind: PersistentVolume
+# 3. StorageClass
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
 metadata:
-  name: mysql-pv
-  namespace: webapps
-spec:
-  capacity:
-    storage: 10Gi
-  volumeMode: Filesystem
-  accessModes:
-    - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: standard
-  hostPath:
-    path: /mnt/data/mysql
-    type: DirectoryOrCreate
+  name: ebs-sc
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+parameters:
+  type: gp3
+  fsType: ext4
 ---
-# 4. PersistentVolumeClaim
+# 5. PersistentVolumeClaim
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -50,21 +43,18 @@ spec:
   resources:
     requests:
       storage: 10Gi
-  storageClassName: standard
+  storageClassName: ebs-sc
 ---
 # 5. MySQL Service
 apiVersion: v1
 kind: Service
 metadata:
-  name: mysql-svc
+  name: mysql-service
   namespace: webapps
-  labels:
-    app: mysql
 spec:
   selector:
     app: mysql
   ports:
-  - protocol: TCP
     port: 3306
     targetPort: 3306
 ---
@@ -74,13 +64,13 @@ kind: Deployment
 metadata:
   name: mysql
   namespace: webapps
-  labels:
-    app: mysql
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: mysql
+  strategy:
+      type: Recreate
   template:
     metadata:
       labels:
@@ -89,6 +79,13 @@ spec:
       containers:
       - name: mysql
         image: mysql:8.0
+        resources: 
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1"
         ports:
         - containerPort: 3306
         env:
@@ -100,14 +97,23 @@ spec:
         - name: MYSQL_DATABASE
           valueFrom:
             configMapKeyRef:
-              name: bankapp-config
+              name: mysql-config
               key: MYSQL_DATABASE
         volumeMounts:
-        - name: mysql-pv-storage
+        - name: mysql-data
           mountPath: /var/lib/mysql
-          subPath: mysql-data
+        livenessProbe:
+          tcpSocket:
+            port: 3306
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command: ["mysqladmin", "ping", "-h", "127.0.0.1"] 
+          initialDelaySeconds: 30
+          periodSeconds: 10
       volumes:
-      - name: mysql-pv-storage
+      - name: mysql-data
         persistentVolumeClaim:
           claimName: mysql-pvc
 ---
