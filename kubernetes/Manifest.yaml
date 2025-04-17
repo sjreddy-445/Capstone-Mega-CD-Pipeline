@@ -1,39 +1,31 @@
-# 1. Namespace
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: bankapp-namespace
-  labels:
-    name: bankapp-namespace
----
-# 2. Secret
+# 1. Secret
 apiVersion: v1
 kind: Secret
 metadata:
   name: mysql-secret
-  namespace: bankapp-namespace
+  namespace: webapps
 type: Opaque
 data:
   MYSQL_ROOT_PASSWORD: VGVzdEAxMjM=  # Base64 for "Test@123"
   SPRING_DATASOURCE_PASSWORD: VGVzdEAxMjM=  # Base64 for "Test@123"
 ---
-# 3. ConfigMap
+# 2. ConfigMap
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: bankapp-config
-  namespace: bankapp-namespace
+  namespace: webapps
 data:
   MYSQL_DATABASE: BankDB
-  SPRING_DATASOURCE_URL: jdbc:mysql://mysql-svc.bankapp-namespace.svc.cluster.local:3306/BankDB?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+  SPRING_DATASOURCE_URL: jdbc:mysql://mysql-svc.webapps.svc.cluster.local:3306/BankDB?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
   SPRING_DATASOURCE_USERNAME: root
 ---
-# 4. PersistentVolume
+# 3. PersistentVolume
 apiVersion: v1
 kind: PersistentVolume
 metadata:
   name: mysql-pv
-  namespace: bankapp-namespace
+  namespace: webapps
 spec:
   capacity:
     storage: 10Gi
@@ -46,12 +38,12 @@ spec:
     path: /mnt/data/mysql
     type: DirectoryOrCreate
 ---
-# 5. PersistentVolumeClaim
+# 4. PersistentVolumeClaim
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: mysql-pvc
-  namespace: bankapp-namespace
+  namespace: webapps
 spec:
   accessModes:
     - ReadWriteOnce
@@ -60,12 +52,12 @@ spec:
       storage: 10Gi
   storageClassName: standard
 ---
-# 6. MySQL Service
+# 5. MySQL Service
 apiVersion: v1
 kind: Service
 metadata:
   name: mysql-svc
-  namespace: bankapp-namespace
+  namespace: webapps
   labels:
     app: mysql
 spec:
@@ -76,12 +68,12 @@ spec:
     port: 3306
     targetPort: 3306
 ---
-# 7. MySQL Deployment
+# 6. MySQL Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mysql
-  namespace: bankapp-namespace
+  namespace: webapps
   labels:
     app: mysql
 spec:
@@ -119,12 +111,12 @@ spec:
         persistentVolumeClaim:
           claimName: mysql-pvc
 ---
-# 8. Bank App Service
+# 7. Bank App Service
 apiVersion: v1
 kind: Service
 metadata:
   name: bankapp-service
-  namespace: bankapp-namespace
+  namespace: webapps
   labels:
     app: bankapp
 spec:
@@ -135,14 +127,14 @@ spec:
     port: 8080
     targetPort: 8080
 ---
-# 9. Bank App Deployment
+# 8. Bank App Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
     app: bankapp-deploy
   name: bankapp-deploy
-  namespace: bankapp-namespace
+  namespace: webapps
 spec:
   replicas: 2
   selector:
@@ -187,12 +179,12 @@ spec:
             memory: "1Gi"
             cpu: "500m"
 ---
-# 10. Ingress
+# 9. Ingress
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: bankapp-ingress
-  namespace: bankapp-namespace
+  namespace: webapps
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
