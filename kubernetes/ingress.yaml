@@ -12,10 +12,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - megaproject.trainwithshubham.com
+    - www.capstonebankapp.com
     secretName: bankapp-tls-secret
   rules:
-  - host: megaproject.trainwithshubham.com
+  - host: www.capstonebankapp.com
     http:
       paths:
       - path: /
