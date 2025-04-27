@@ -125,7 +125,7 @@ metadata:
   name: bankapp-service
   namespace: webapps
 spec:
-  type: ClusterIP
+  type: LoadBalancer
   selector:
     app: bankapp
   ports:
